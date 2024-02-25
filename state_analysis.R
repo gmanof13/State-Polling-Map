@@ -1,0 +1,75 @@
+library(usa)
+library(tidyverse)
+library(janitor)
+library(usmap)
+
+tuesdata <- tidytuesdayR::tt_load(2024, week = 3)
+
+facts <- usa::facts
+
+polling_places <- tuesdata$polling_places %>% clean_names()
+
+state_data <- 
+  usa::state.name %>% 
+  tibble() %>% 
+  cbind(usa::state.abb) %>% 
+  rename(full = ".",abbrv = "usa::state.abb") %>% 
+  left_join(facts,by=c("full"="name"))
+
+state <- map_data("state")
+
+polling_data <- 
+  polling_places %>% 
+  filter(year(election_date) == max(year(election_date))) %>% 
+  left_join(state_data, by = c("state" = "abbrv")) %>% 
+  group_by(state,full) %>% 
+  summarize(
+    n = n(),
+    pop = min(population)
+  ) %>% 
+  ungroup() %>% 
+  mutate(voting_places_per_capita = round(n / pop,10)) %>% 
+  mutate(full = tolower(full)) 
+
+
+midpoint_value <- 
+  polling_data %>% 
+  summarize(value = median(voting_places_per_capita)) %>% 
+  pull()
+
+
+labels <- 
+  state  %>%
+  left_join(polling_data,by=c("region"="full")) %>% 
+  group_by(region,group) %>% 
+  summarize(lat = mean(lat),
+            long = mean(long))
+
+state  %>%
+  left_join(polling_data,by=c("region"="full")) %>%
+  distinct() %>% 
+  ggplot(aes(
+    x=long,
+    y=lat,
+    group=group,
+    fill=voting_places_per_capita 
+  ))+
+  geom_polygon()+
+  theme_void()+
+  theme(
+    axis.title.x=element_blank(),
+    axis.text.x=element_blank(),
+    axis.ticks.x=element_blank(),
+    axis.title.y=element_blank(),
+    axis.text.y=element_blank(),
+    axis.ticks.y=element_blank()
+    
+  )+
+  scale_fill_gradient2(low = "red", mid = "red", high = "green")+
+  labs(
+    title = "Voting Places Per Capita by State",
+    subtitle = "(34 states displayed)",
+  )+
+  guides(fill=guide_legend(title="Voting Places Per Capita"))+
+  geom_path(data=state  %>%
+              left_join(polling_data,by=c("region"="full")),color = "black", size = .5)
